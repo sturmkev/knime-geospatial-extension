@@ -1196,6 +1196,69 @@ class CreateGrid:
 
 
 ############################################
+# Create H3 Grid Node
+############################################
+
+
+@knext.node(
+    name="Create H3 Grid",
+    node_type=knext.NodeType.MANIPULATOR,
+    icon_path=__NODE_ICON_PATH + "CreateH3Grid.png",
+    category=__category,
+    after="",
+)
+@knext.input_table(
+    name="Input Table",
+    description="Input table of Create H3 Grid, should be a polygon with WGS-84/EPSG:4326 projection",
+)
+@knext.output_table(
+    name="Output Table",
+    description="Output table of Created H3 Grid",
+)
+class CreateH3Grid:
+    """Create H3 Grid node.
+    This node creates hexagonal grid inside the input polygon using [H3](https://h3geo.org/).
+    """
+
+    geo_col = knut.geo_col_parameter()
+
+    zoom = knext.IntParameter(
+        "Zoom",
+        "The zoom level of the grid from 0 to 15. Default value is 8, the bigger the zoom level, the smaller the hexagon. If the zoom level is too small, the hexagon will be too big to fit in the input polygon, and it can cause error.",
+        default_value=8,
+    )
+
+    _COL_ID = "Grid ID"
+    _COL_GEOMETRY = "geometry"
+
+    def configure(self, configure_context, input_schema):
+        self.geo_col = knut.column_exists_or_preset(
+            configure_context, self.geo_col, input_schema, knut.is_geo
+        )
+        return None
+
+    def execute(self, exec_context: knext.ExecutionContext, input_table):
+        import h3
+        from shapely.geometry import Polygon
+        import geopandas as gpd
+
+        gdf_boundary = knut.load_geo_data_frame(input_table, self.geo_col, exec_context)
+
+        grid = gpd.GeoDataFrame(
+            geometry=[
+                Polygon(h3.h3_to_geo_boundary(h3_hex, geo_json=True))
+                for h3_hex in h3.polyfill_geojson(
+                    gdf_boundary.geometry.__geo_interface__["features"][0]["geometry"],
+                    self.zoom,
+                )
+            ],
+            crs=gdf_boundary.crs,
+        )
+
+        return knut.to_table(grid, exec_context)
+
+
+############################################
 # Get Geodesic Haversine Distance
 ############################################
 @knext.node(
