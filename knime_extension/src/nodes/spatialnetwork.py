@@ -1525,6 +1525,7 @@ class TomTomIsochroneMap:
         Different route types can result in different isochrones.""",
         default_value=_TomTomRouteType.get_default().name,
         enum=_TomTomRouteType,
+        style=knext.EnumParameter.Style.DROPDOWN,
     )
 
     travel_mode = knext.EnumParameter(
