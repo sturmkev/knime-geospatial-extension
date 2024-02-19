@@ -1472,11 +1472,11 @@ class TomTomIsochroneMap:
     """This node calculates the isochrone map (reachable range) for a given geometric point using the
     Calculate Reachable Range service provided by TomTom.
 
-    This node calculates the isochrone map (reachable range) for a given geometric point using the
+    This node calculates the isochrone map (reachable range) for a list of given geometric points using the
     [Calculate Reachable Range service](https://developer.tomtom.com/routing-api/documentation/routing/calculate-reachable-range)
     of the [Routing service](https://www.tomtom.com/products/routing/)
     provided by [TomTom](https://www.tomtom.com/). It takes a geometry as origin and generates an isochrone map as output for each given geometry, illustrating
-    areas reachable within a given time budget. If the input geometry is not a point feature, the centroid will be used.
+    areas reachable within a given time budget list. If the input geometry is not a point feature, the centroid will be used.
 
     Please note that this node requires a
     [TomTom API key](https://developer.tomtom.com/knowledgebase/platform/articles/how-to-get-an-tomtom-api-key/)
@@ -1497,11 +1497,27 @@ class TomTomIsochroneMap:
         include_none_column=False,
     )
 
-    time_budget_in_min = knext.IntParameter(
-        "Time budget in minutes",
-        """Specifies the time budget for the isochrone map in minutes. The time budget determines the range of 
-        the isochrone, representing the maximum travel time from the provided origin point.""",
-        default_value=15,
+    id_col = knext.ColumnParameter(
+        "Origin ID column",
+        """This parameter selects the column which contains for each origin a unique ID. The selected column will be
+        returned in the result table and can be used to link back to the original data.""",
+        port_index=0,
+        column_filter=knut.is_numeric_or_string,
+        include_row_key=False,
+        include_none_column=False,
+    )
+
+    # time_budget_in_min = knext.IntParameter(
+    #     "Time budget in minutes",
+    #     """Specifies the time budget for the isochrone map in minutes. The time budget determines the range of 
+    #     the isochrone, representing the maximum travel time from the provided origin point.""",
+    #     default_value=15,
+    # )
+
+    iso_time_budget_list = knext.StringParameter(
+        "Isochrone time budget list",
+        """Input an interval list in minutes separated by comma e.g. 5,10,15,20,25,30""",
+        default_value="5,10,15,20,25,30",
     )
 
     depart_at = knext.DateTimeParameter(
@@ -1560,15 +1576,26 @@ class TomTomIsochroneMap:
     )
 
     _COL_GEOMETRY = "Geometry"
-    _COL_ISOCHRONE = "Isochrone"
+    _COL_ISOCHRONE = "Time budget (Mins)"
 
     def configure(self, configure_context, input_schema_1):
         self.c_geo_col = knut.column_exists_or_preset(
             configure_context, self.c_geo_col, input_schema_1, knut.is_geo
         )
-        # TODO: Return result schema with the origin id and bounds column
 
-        return None
+        return knext.Schema(
+            [ 
+                input_schema_1[self.id_col].ktype,
+                # knext.int64(),
+                knext.int64(),
+                input_schema_1[self.c_geo_col].ktype
+            ],
+            [
+                self.id_col,
+                self._COL_ISOCHRONE,
+                self._COL_GEOMETRY,
+            ],
+        )
 
     def execute(self, exec_context: knext.ExecutionContext, input1):
         tomtom_base_url = "https://api.tomtom.com/routing/1/calculateReachableRange/"
@@ -1579,45 +1606,90 @@ class TomTomIsochroneMap:
         from shapely.geometry import Polygon
 
         c_gdf = knut.load_geo_data_frame(input1, self.c_geo_col, exec_context)
+        iso_map_list = []
+        loop_i = 1
+        total_loops = len(c_gdf) * len(self.iso_time_budget_list.split(","))
+        for k,row in c_gdf.iterrows():
+            id_ = row[self.id_col]
+            x = str(row[self.c_geo_col].centroid.x)
+            y = str(row[self.c_geo_col].centroid.y)
+            time_budgets = list(map(int, self.iso_time_budget_list.split(",")))
 
-        # TODO: Execute in a loop with progress and cancellation to support a table with multiple input points
-        # append boundary column to original input table and let the user specify the name of the appended boundary column
-        # TODO: Compute centroid for any none point input geometry
-        URL = (
-            "%s%s,%s/json?timeBudgetInSec=%s&travelMode=%s&traffic=%s&key=%s&routeType=%s&departAt=%s"
-            % (
-                tomtom_base_url,
-                str(c_gdf[self.c_geo_col].get_coordinates()["y"].values[0]),
-                str(c_gdf[self.c_geo_col].get_coordinates()["x"].values[0]),
-                str(self.time_budget_in_min * 60),
-                self.travel_mode.lower(),
-                str(self.traffic).lower(),
-                self.tomtom_api_key,
-                self.route_type.lower(),
-                str(self.depart_at).replace(" ", "T"),
-            )
-        )
+            for time_budget in time_budgets:
+                URL = (
+                    "%s%s,%s/json?timeBudgetInSec=%s&travelMode=%s&traffic=%s&key=%s&routeType=%s&departAt=%s"
+                    % (
+                        tomtom_base_url,
+                        y,
+                        x,
+                        str(time_budget * 60),
+                        self.travel_mode.lower(),
+                        str(self.traffic).lower(),
+                        self.tomtom_api_key,
+                        self.route_type.lower(),
+                        str(self.depart_at).replace(" ", "T"),
+                    )
+                )
 
-        req = requests.get(URL, timeout=self.timeout)
+                req = requests.get(URL, timeout=self.timeout)
+                data = json.loads(req.text)
+                bounds = data["reachableRange"]["boundary"]
+                bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
+                
+                
+                exec_context.set_progress(
+                    0.9 * loop_i / float(total_loops),
+                    f"Isochrone {loop_i} of {total_loops} computed",
+                )
+                knut.check_canceled(exec_context)
 
-        import debugpy
-        import logging
+                loop_i +=1
+                iso_map_list.append([id_, time_budget, bounds_polygon])
+        gdf = gp.GeoDataFrame(iso_map_list, columns=[self.id_col, self._COL_ISOCHRONE, self._COL_GEOMETRY])
+        # convert data type to match the schema, if id_col is int32, convert to int64
+        # if gdf[self.id_col].dtype == "int64":
+        #     gdf[self.id_col] = gdf[self.id_col].astype("int32")
+        gdf.set_geometry(self._COL_GEOMETRY, inplace=True)
+        gdf.crs = c_gdf.crs
 
-        LOGGER = logging.getLogger(__name__)
-        debugpy.listen(5678)
-        LOGGER.error("Waiting for debugger attach")
-        debugpy.wait_for_client()
-        debugpy.breakpoint()
 
-        # TODO: Handle error status codes and output error code and message
-        # https://developer.tomtom.com/routing-api/documentation/routing/calculate-route#response-codes
-        data = json.loads(req.text)
-        bounds = data["reachableRange"]["boundary"]
-        bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
-        bounds_gdf = gp.GeoDataFrame(geometry=[bounds_polygon], crs="EPSG:4326")
+
+
+        # URL = (
+        #     "%s%s,%s/json?timeBudgetInSec=%s&travelMode=%s&traffic=%s&key=%s&routeType=%s&departAt=%s"
+        #     % (
+        #         tomtom_base_url,
+        #         str(c_gdf[self.c_geo_col].get_coordinates()["y"].values[0]),
+        #         str(c_gdf[self.c_geo_col].get_coordinates()["x"].values[0]),
+        #         str(self.time_budget_in_min * 60),
+        #         self.travel_mode.lower(),
+        #         str(self.traffic).lower(),
+        #         self.tomtom_api_key,
+        #         self.route_type.lower(),
+        #         str(self.depart_at).replace(" ", "T"),
+        #     )
+        # )
+
+        # req = requests.get(URL, timeout=self.timeout)
+
+        # import debugpy
+        # import logging
+
+        # LOGGER = logging.getLogger(__name__)
+        # debugpy.listen(5678)
+        # LOGGER.error("Waiting for debugger attach")
+        # debugpy.wait_for_client()
+        # debugpy.breakpoint()
+
+        # # TODO: Handle error status codes and output error code and message
+        # # https://developer.tomtom.com/routing-api/documentation/routing/calculate-route#response-codes
+        # data = json.loads(req.text)
+        # bounds = data["reachableRange"]["boundary"]
+        # bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
+        # bounds_gdf = gp.GeoDataFrame(geometry=[bounds_polygon], crs="EPSG:4326")
 
         # this line is only for testing
         # c_gdf["url"] = URL
         #  return knut.to_table(c_gdf)
 
-        return knut.to_table(bounds_gdf)
+        return knut.to_table(gdf)
