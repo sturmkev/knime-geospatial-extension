@@ -1598,6 +1598,12 @@ class TomTomIsochroneMap:
         )
 
     def execute(self, exec_context: knext.ExecutionContext, input1):
+
+
+        if not self.tomtom_api_key:
+            knut.LOGGER.error(
+                "TomTom API key is required to authenticate requests to the TomTom API."
+            )
         tomtom_base_url = "https://api.tomtom.com/routing/1/calculateReachableRange/"
         # a sample url:
         # url = """https://api.tomtom.com/routing/1/calculateReachableRange/52.50931,13.42936/json?energyBudgetInkWh=43&avoid=unpavedRoads&vehicleEngineType=electric&constantSpeedConsumptionInkWhPerHundredkm=50,8.2:130,21.3&key=%s"""%tomkey
@@ -1631,17 +1637,23 @@ class TomTomIsochroneMap:
                     )
                 )
 
-                req = requests.get(URL, timeout=self.timeout)
-                data = json.loads(req.text)
-                bounds = data["reachableRange"]["boundary"]
-                bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
-                
-                
-                exec_context.set_progress(
-                    0.9 * loop_i / float(total_loops),
-                    f"Isochrone {loop_i} of {total_loops} computed",
-                )
-                knut.check_canceled(exec_context)
+                try:
+                    req = requests.get(URL, timeout=self.timeout)
+                    response_code = req.status_code
+                    data = json.loads(req.text)
+                    bounds = data["reachableRange"]["boundary"]
+                    bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
+                    
+                    
+                    exec_context.set_progress(
+                        0.9 * loop_i / float(total_loops),
+                        f"Isochrone {loop_i} of {total_loops} computed",
+                    )
+                    knut.check_canceled(exec_context)
+                except Exception as e:
+                    knut.LOGGER.error(f"Error in isochrone computation: {e} \n Request URL: {URL} \n")
+                    if  response_code != 200:
+                        knut.LOGGER.error(f"Response code: {response_code} ")
 
                 loop_i +=1
                 iso_map_list.append([id_, time_budget, bounds_polygon])
