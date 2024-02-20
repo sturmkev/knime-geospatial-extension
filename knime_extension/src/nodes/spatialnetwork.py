@@ -1509,7 +1509,7 @@ class TomTomIsochroneMap:
 
     # time_budget_in_min = knext.IntParameter(
     #     "Time budget in minutes",
-    #     """Specifies the time budget for the isochrone map in minutes. The time budget determines the range of 
+    #     """Specifies the time budget for the isochrone map in minutes. The time budget determines the range of
     #     the isochrone, representing the maximum travel time from the provided origin point.""",
     #     default_value=15,
     # )
@@ -1564,7 +1564,7 @@ class TomTomIsochroneMap:
         [here.](https://developer.tomtom.com/knowledgebase/platform/articles/how-to-get-an-tomtom-api-key/)
         For details about the pricing go to the [TomTom pricing page.](https://developer.tomtom.com/store/maps-api)""",
         default_value="your api key here",
-        validator = knut.api_key_validator
+        validator=knut.api_key_validator,
         # TODO: Validate that the API key is present
     )
 
@@ -1585,10 +1585,10 @@ class TomTomIsochroneMap:
         )
 
         return knext.Schema(
-            [ 
+            [
                 input_schema_1[self.id_col].ktype,
                 knext.int64(),
-                input_schema_1[self.c_geo_col].ktype
+                input_schema_1[self.c_geo_col].ktype,
             ],
             [
                 self.id_col,
@@ -1598,7 +1598,6 @@ class TomTomIsochroneMap:
         )
 
     def execute(self, exec_context: knext.ExecutionContext, input1):
-
 
         if not self.tomtom_api_key:
             knut.LOGGER.error(
@@ -1615,7 +1614,7 @@ class TomTomIsochroneMap:
         iso_map_list = []
         loop_i = 1
         total_loops = len(c_gdf) * len(self.iso_time_budget_list.split(","))
-        for k,row in c_gdf.iterrows():
+        for k, row in c_gdf.iterrows():
             id_ = row[self.id_col]
             x = str(row[self.c_geo_col].centroid.x)
             y = str(row[self.c_geo_col].centroid.y)
@@ -1640,12 +1639,14 @@ class TomTomIsochroneMap:
                 # try:
                 req = requests.get(URL, timeout=self.timeout)
                 response_code = req.status_code
-                if  response_code != 200:
+                if response_code != 200:
                     knut.LOGGER.error(f"Error! TomTom response code: {response_code} ")
                     raise ValueError(f"Error! TomTom response code: {response_code} ")
                 data = json.loads(req.text)
                 bounds = data["reachableRange"]["boundary"]
-                bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
+                bounds_polygon = Polygon(
+                    [(x["longitude"], x["latitude"]) for x in bounds]
+                )
                 exec_context.set_progress(
                     0.9 * loop_i / float(total_loops),
                     f"Isochrone {loop_i} of {total_loops} computed",
@@ -1653,19 +1654,17 @@ class TomTomIsochroneMap:
                 knut.check_canceled(exec_context)
                 # except Exception as e:
                 #     knut.LOGGER.error(f"Error in isochrone computation: {e} \n Request URL: {URL} \n")
-                    
 
-                loop_i +=1
+                loop_i += 1
                 iso_map_list.append([id_, time_budget, bounds_polygon])
-        gdf = gp.GeoDataFrame(iso_map_list, columns=[self.id_col, self._COL_ISOCHRONE, self._COL_GEOMETRY])
+        gdf = gp.GeoDataFrame(
+            iso_map_list, columns=[self.id_col, self._COL_ISOCHRONE, self._COL_GEOMETRY]
+        )
         # convert data type to match the schema, if id_col is int32, convert to int64
         # if gdf[self.id_col].dtype == "int64":
         #     gdf[self.id_col] = gdf[self.id_col].astype("int32")
         gdf.set_geometry(self._COL_GEOMETRY, inplace=True)
         gdf.crs = c_gdf.crs
-
-
-
 
         # URL = (
         #     "%s%s,%s/json?timeBudgetInSec=%s&travelMode=%s&traffic=%s&key=%s&routeType=%s&departAt=%s"

@@ -770,6 +770,7 @@ def get_env_path():
 
 #     return adjust_list_ref
 
+
 def api_key_validator(api_key: str) -> str:
     """
     Checks if the given API key is valid.
