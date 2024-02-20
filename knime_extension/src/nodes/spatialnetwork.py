@@ -1563,7 +1563,8 @@ class TomTomIsochroneMap:
         To get an API key, click
         [here.](https://developer.tomtom.com/knowledgebase/platform/articles/how-to-get-an-tomtom-api-key/)
         For details about the pricing go to the [TomTom pricing page.](https://developer.tomtom.com/store/maps-api)""",
-        default_value="",
+        default_value="your api key here",
+        validator = knut.api_key_validator
         # TODO: Validate that the API key is present
     )
 
@@ -1586,7 +1587,6 @@ class TomTomIsochroneMap:
         return knext.Schema(
             [ 
                 input_schema_1[self.id_col].ktype,
-                # knext.int64(),
                 knext.int64(),
                 input_schema_1[self.c_geo_col].ktype
             ],
@@ -1637,23 +1637,23 @@ class TomTomIsochroneMap:
                     )
                 )
 
-                try:
-                    req = requests.get(URL, timeout=self.timeout)
-                    response_code = req.status_code
-                    data = json.loads(req.text)
-                    bounds = data["reachableRange"]["boundary"]
-                    bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
+                # try:
+                req = requests.get(URL, timeout=self.timeout)
+                response_code = req.status_code
+                if  response_code != 200:
+                    knut.LOGGER.error(f"Error! TomTom response code: {response_code} ")
+                    raise ValueError(f"Error! TomTom response code: {response_code} ")
+                data = json.loads(req.text)
+                bounds = data["reachableRange"]["boundary"]
+                bounds_polygon = Polygon([(x["longitude"], x["latitude"]) for x in bounds])
+                exec_context.set_progress(
+                    0.9 * loop_i / float(total_loops),
+                    f"Isochrone {loop_i} of {total_loops} computed",
+                )
+                knut.check_canceled(exec_context)
+                # except Exception as e:
+                #     knut.LOGGER.error(f"Error in isochrone computation: {e} \n Request URL: {URL} \n")
                     
-                    
-                    exec_context.set_progress(
-                        0.9 * loop_i / float(total_loops),
-                        f"Isochrone {loop_i} of {total_loops} computed",
-                    )
-                    knut.check_canceled(exec_context)
-                except Exception as e:
-                    knut.LOGGER.error(f"Error in isochrone computation: {e} \n Request URL: {URL} \n")
-                    if  response_code != 200:
-                        knut.LOGGER.error(f"Response code: {response_code} ")
 
                 loop_i +=1
                 iso_map_list.append([id_, time_budget, bounds_polygon])
