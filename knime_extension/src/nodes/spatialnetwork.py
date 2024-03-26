@@ -1583,12 +1583,17 @@ class TomTomIsochroneMap:
         self.c_geo_col = knut.column_exists_or_preset(
             configure_context, self.c_geo_col, input_schema_1, knut.is_geo
         )
+        self.id_col = knut.column_exists_or_preset(
+            configure_context, self.id_col, input_schema_1, knut.is_numeric_or_string
+        )
 
         return knext.Schema(
             [
                 input_schema_1[self.id_col].ktype,
                 knext.int64(),
-                input_schema_1[self.c_geo_col].ktype,
+                # input_schema_1[self.c_geo_col].ktype,
+                knut.TYPE_POLYGON,
+
             ],
             [
                 self.id_col,
@@ -1610,6 +1615,14 @@ class TomTomIsochroneMap:
         iso_map_list = []
         loop_i = 1
         total_loops = len(c_gdf) * len(self.iso_time_budget_list.split(","))
+        if self.tomtom_api_key == "your api key here" or self.tomtom_api_key == "":
+            knut.LOGGER.error(
+                "Please enter your TomTom API key. If you don't have one, you can get one [here](https://developer.tomtom.com/knowledgebase/platform/articles/how-to-get-an-tomtom-api-key/)."
+            )
+            raise ValueError(
+                "Please enter your TomTom API key. If you don't have one, you can get one [here](https://developer.tomtom.com/knowledgebase/platform/articles/how-to-get-an-tomtom-api-key/)."
+            )
+        
         for k, row in c_gdf.iterrows():
             id_ = row[self.id_col]
             x = str(row[self.c_geo_col].centroid.x)
