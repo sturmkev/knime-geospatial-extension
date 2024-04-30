@@ -1593,7 +1593,6 @@ class TomTomIsochroneMap:
                 knext.int64(),
                 # input_schema_1[self.c_geo_col].ktype,
                 knut.TYPE_POLYGON,
-
             ],
             [
                 self.id_col,
@@ -1622,7 +1621,7 @@ class TomTomIsochroneMap:
             raise ValueError(
                 "Please enter your TomTom API key. If you don't have one, you can get one [here](https://developer.tomtom.com/knowledgebase/platform/articles/how-to-get-an-tomtom-api-key/)."
             )
-        
+
         for k, row in c_gdf.iterrows():
             id_ = row[self.id_col]
             x = str(row[self.c_geo_col].centroid.x)
